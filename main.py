@@ -1,5 +1,18 @@
 import numpy as np
 import random
+import itertools as it
+
+
+EXACT = 2
+SHIFTED = 1
+NO_MATCH = 0
+
+ALL_WORDS = 'data/allowed_words.txt'
+ANS_WORDS = 'data/possible_words.txt'
+
+PATTERN_MATRIX_FILE = 'pattern_matrix.npy'
+PATTERN_GRID = dict()
+
 
 def get_word_list(filename):
     '''
@@ -106,10 +119,91 @@ def get_pattern_dist(test_word, word_list):
 def compute_entropy(prob_distr):
     entropy = 0
     for pattern, prob in prob_distr.items():
-        if prob != 0:
-            entropy += -prob * np.log(prob)
-
+        entropy += -prob * np.log(prob) if prob > 0 else 0
     return entropy
+
+
+def convert_to_ascii(word_list):
+    word_arr = np.array([[ord(w) for w in word] for word in word_list])
+    return word_arr
+
+
+def generate_pattern_matrix(words1, words2):
+    '''
+    A pattern for each pair of words in the two word lists in the sense of wordle-similarity is generated.
+    The pattern is of the form 0 --> Grey, 1 --> Yellow, 2 --> Green.
+
+    The function generates the pattern for each pair of words and returns an numpy array of shape
+    (#words1, #words2, word_length)
+
+    :param words1: word list 1
+    :param words2: word list 2
+    :return: A numpy array of the patten matrix
+    '''
+
+    nw1 = len(words1)
+    nw2 = len(words2)
+    nl = len(words1[0])
+
+    words_arr1, words_arr2 = map(convert_to_ascii, (words1, words2))
+
+    equality_matrix = np.zeros((nw1, nw2, nl, nl), dtype=bool)
+    # equality matrix holds True if words[a][i] = words[b][i]
+    # This shows which letters of which words are the same in a grid
+    for i in range(nl):
+        for j in range(nl):
+            equality_matrix[:, :, i, j] = np.equal.outer(words_arr1[:, i], words_arr2[:, j])
+
+    pattern_matrix = np.zeros((nw1, nw2, nl), dtype=np.uint8)
+    # Set EXACT matches
+    for i in range(nl):
+        letter_matches = equality_matrix[:, :, i, i].flatten()
+        pattern_matrix.flat[letter_matches] = EXACT
+
+        for j in range(nl):
+            # If a matched letter, is matching to a different letter as well, set
+            # this to False to prevent a double trigger in the SHIFTED match pass
+            equality_matrix[:, :, j, i].flat[letter_matches] = False
+            equality_matrix[:, :, i, j].flat[letter_matches] = False
+
+    # Set SHIFTED matches
+    for i, j in it.product(range(nl), range(nl)):
+        letter_matches = equality_matrix[:, :, i, j].flatten()
+        pattern_matrix.flat[letter_matches] = SHIFTED
+
+        for k in range(nl):
+            # Similar to above, mark as taken care of
+            equality_matrix[:, :, k, j].flat[letter_matches] = False
+            equality_matrix[:, :, i, k].flat[letter_matches] = False
+
+    return pattern_matrix
+
+
+def generate_full_pattern_matrix():
+    all_words = get_word_list(ALL_WORDS)
+    full_pattern_matrix = generate_pattern_matrix(all_words, all_words)
+    np.save(PATTERN_MATRIX_FILE, full_pattern_matrix)
+    return full_pattern_matrix
+
+
+def get_pattern_matrix(words1, words2):
+    if not PATTERN_GRID:
+        if not PATTERN_MATRIX_FILE:
+            print('''
+            Need to generate the pattern matrix file. This will be stored to disk
+            ''')
+            generate_full_pattern_matrix()
+        PATTERN_GRID['grid'] = np.load(PATTERN_MATRIX_FILE)
+        PATTERN_GRID['words_to_index'] = dict(zip(words1, it.count()))
+
+    full_pattern_matrix = PATTERN_GRID['grid']
+    words_to_index = PATTERN_GRID['words_to_index']
+
+    indices1 = [words_to_index[word] for word in words1]
+    indices2 = [words_to_index[word] for word in words2]
+    return full_pattern_matrix[np.ix_(indices1, indices2)]
+
+
 
 #
 # word_list = {'clap', 'clip', 'luck', 'call', 'cute', 'lick', 'step', 'stop', 'site', 'grow', 'show',
@@ -117,8 +211,6 @@ def compute_entropy(prob_distr):
 #              'bone', 'brim'}
 
 if __name__ == "__main__":
-    ALL_WORDS = 'data/allowed_words.txt'
-    ANS_WORDS = 'data/possible_words.txt'
     CORRECT = '22222'
 
     word_list = get_word_list(ANS_WORDS)
