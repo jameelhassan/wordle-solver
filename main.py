@@ -1,6 +1,7 @@
 import numpy as np
 import random
 import itertools as it
+from scipy.stats import entropy
 
 
 EXACT = 2
@@ -9,8 +10,7 @@ NO_MATCH = 0
 
 ALL_WORDS = 'data/allowed_words.txt'
 ANS_WORDS = 'data/possible_words.txt'
-
-PATTERN_MATRIX_FILE = 'pattern_matrix.npy'
+PATTERN_MATRIX_FILE = 'data/pattern_matrix.npy'
 PATTERN_GRID = dict()
 
 
@@ -39,7 +39,7 @@ def get_pattern(guess_word, ans_word):
     '''
 
     if PATTERN_GRID:
-        word_to_index = PATTERN_GRID['word_to_index']
+        word_to_index = PATTERN_GRID['words_to_index']
         if ans_word in word_to_index and guess_word in word_to_index:
             pattern = get_pattern_matrix([guess_word], [ans_word])[0,0]
     pattern = generate_pattern_matrix([guess_word], [ans_word])[0,0]
@@ -56,12 +56,12 @@ def get_wordle_prior():
     all_words = get_word_list()
     ans_words = get_word_list(ans_list=True)
     return dict(
-        (w, int(w in ans_words) for w in all_words)
+        (w, int(w in ans_words)) for w in all_words
     )
 
 
 def get_weights(word_list, priors):
-    word_freqs = [priors[word] for word in word_list]
+    word_freqs = np.array([priors[word] for word in word_list], dtype=np.float)
     total_freq = np.sum(word_freqs)
     if total_freq == 0:
         return np.zeros(word_freqs.shape)
@@ -69,7 +69,7 @@ def get_weights(word_list, priors):
     return word_freqs
 
 
-def get_pattern_dist(allowed_words, possible_words, weights):
+def get_pattern_distribution(allowed_words, possible_words, weights):
     '''
     For each allowed guess word, there are 3**5 possible patterns that could occur. These patterns will depend
     on the possible answer words and their corresponding probability of occuring
@@ -85,16 +85,20 @@ def get_pattern_dist(allowed_words, possible_words, weights):
     tot_possible_words = len(possible_words)
     pattern_matrix = get_pattern_matrix(allowed_words, possible_words)
     pattern_dist = np.zeros((tot_words, 3**5))
-    for i, prob in weights:
+    for i, prob in enumerate(weights):
         pattern_dist[np.arange(tot_words), pattern_matrix[:, i]] += prob
     return pattern_dist
 
 
-def compute_entropy(prob_distr):
-    entropy = 0
-    for pattern, prob in prob_distr.items():
-        entropy += -prob * np.log2(prob) if prob > 0 else 0
-    return entropy
+def compute_entropy(pattern_dist):
+    ax = len(pattern_dist.shape) - 1
+    return entropy(pattern_dist, base=2, axis=ax)
+
+
+def maximize_entropy(pattern_dist):
+    entropies = compute_entropy(pattern_dist)
+    best_idx = np.argmax(entropies)
+    return best_idx
 
 
 def convert_to_ascii(word_list):
@@ -191,55 +195,32 @@ def get_pattern_matrix(words1, words2):
     return full_pattern_matrix[np.ix_(indices1, indices2)]
 
 
+def gameplay(priors=None):
+    allowed_words = get_word_list()
+    possible_words = get_word_list(ans_list=True)
+    answer_word = np.random.choice(possible_words)
+    guess = 'xxxxx'
+    iters = 0
 
-#
-# word_list = {'clap', 'clip', 'luck', 'call', 'cute', 'lick', 'step', 'stop', 'site', 'grow', 'show',
-#              'meow', 'plot', 'worm', 'stem', 'ease', 'stew', 'home', 'gone', 'moan', 'film', 'fine',
-#              'bone', 'brim'}
+    while guess != answer_word:
+        if priors is None:
+            priors = get_wordle_prior()
+        weights = get_weights(possible_words, priors)
+        pattern_distribution = get_pattern_distribution(allowed_words, possible_words, weights)
+        best_guess_idx = maximize_entropy(pattern_distribution)
+        guess = allowed_words[best_guess_idx]
+        iters += 1
+        pattern = get_pattern(guess, answer_word)
+        allowed_words = filter_word_list(guess, pattern, allowed_words)
+        possible_words = filter_word_list(guess, pattern, possible_words)
+        print(f"The guessed word is {guess.upper()} and the pattern is {ternary_to_int_pattern(pattern)}")
+
+    return f"The correct word is {answer_word.upper()}, and was guessed in {iters} attempts"
+
 
 if __name__ == "__main__":
-    CORRECT = '22222'
-
-    word_list = get_word_list()
-    answer_words = get_word_list(ans_list=True)
-    answer_word = random.choice(answer_words)
-    print(f"There are {len(word_list)} possible words")
-    attempt = 1
-
-    max_entropy = 0
-    words_traversed = 0
-    for word in word_list:
-        word_prob_distr = get_pattern_dist(word, word_list)
-        word_entropy = compute_entropy(word_prob_distr)
-        if word_entropy > max_entropy:
-            max_entropy = word_entropy
-            guess_word = word
-        words_traversed += 1
-        if words_traversed % 20 == 0:
-            print('Words traversed {}'.format(words_traversed))
-
-    pattern = get_pattern(answer_word, guess_word)
-    print(f'Chosen guess word is {word} and the pattern is {pattern}')
-
-    while pattern != CORRECT:
-        word_list = filter_word_list(answer_word, pattern, word_list)
-        print(f"Filtered list has {len(word_list)} words")
-
-        max_entropy = 0
-        for word in word_list:
-            word_prob_distr = get_pattern_dist(word, word_list)
-            word_entropy = compute_entropy(word_prob_distr)
-            if word_entropy > max_entropy:
-                max_entropy = word_entropy
-                guess_word = word
-        pattern = get_pattern(answer_word, guess_word)
-        attempt += 1
-        print(f'Chosen guess word is {word} and the pattern is {pattern}')
-
-    print(f'''The answer was guessed in {attempt} attempts
-The guessed answer is {guess_word}
-The correct answer is {answer_word}
-''')
+    game_result = gameplay()
+    print(game_result)
 
 
 
