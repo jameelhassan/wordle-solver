@@ -195,6 +195,11 @@ def get_pattern_matrix(words1, words2):
     return full_pattern_matrix[np.ix_(indices1, indices2)]
 
 
+def pattern_to_wordle_like(pattern):
+    d = {NO_MATCH: "⬛", SHIFTED: "🟨", EXACT: "🟩"}
+    return "".join(d[x] for x in ternary_to_int_pattern(pattern))
+
+
 def gameplay(priors=None):
     allowed_words = get_word_list()
     possible_words = get_word_list(ans_list=True)
@@ -213,7 +218,7 @@ def gameplay(priors=None):
         pattern = get_pattern(guess, answer_word)
         allowed_words = filter_word_list(guess, pattern, allowed_words)
         possible_words = filter_word_list(guess, pattern, possible_words)
-        print(f"The guessed word is {guess.upper()} and the pattern is {ternary_to_int_pattern(pattern)}")
+        print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}")
 
     return f"The correct word is {answer_word.upper()}, and was guessed in {iters} attempts"
 
