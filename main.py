@@ -69,7 +69,7 @@ def get_weights(word_list, priors):
     return word_freqs
 
 
-def get_pattern_distribution(allowed_words, possible_words, weights):
+def get_pattern_distribution(allowed_words, possible_words, weights=None):
     '''
     For each allowed guess word, there are 3**5 possible patterns that could occur. These patterns will depend
     on the possible answer words and their corresponding probability of occuring
@@ -82,9 +82,9 @@ def get_pattern_distribution(allowed_words, possible_words, weights):
     :return:
     '''
     tot_words = len(allowed_words)
-    tot_possible_words = len(possible_words)
     pattern_matrix = get_pattern_matrix(allowed_words, possible_words)
     pattern_dist = np.zeros((tot_words, 3**5))
+    weights = 1 / tot_words * np.ones(tot_words, dtype=np.float) if weights is None else weights
     for i, prob in enumerate(weights):
         pattern_dist[np.arange(tot_words), pattern_matrix[:, i]] += prob
     return pattern_dist
@@ -206,7 +206,7 @@ def gameplay(priors=None):
         if priors is None:
             priors = get_wordle_prior()
         weights = get_weights(possible_words, priors)
-        pattern_distribution = get_pattern_distribution(allowed_words, possible_words, weights)
+        pattern_distribution = get_pattern_distribution(allowed_words, allowed_words, weights=None)
         best_guess_idx = maximize_entropy(pattern_distribution)
         guess = allowed_words[best_guess_idx]
         iters += 1
