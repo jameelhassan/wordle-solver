@@ -14,112 +14,86 @@ PATTERN_MATRIX_FILE = 'pattern_matrix.npy'
 PATTERN_GRID = dict()
 
 
-def get_word_list(filename):
+def get_word_list(ans_list=False):
     '''
     :param filename: path to txt file with words
     :return: list of all words
     '''
+    filename = ANS_WORDS if ans_list else ALL_WORDS
     with open(filename, 'r') as f:
         word_list = f.read().split('\n')
 
     return word_list
 
 
-def get_pattern(ans_word, guess):
+def get_pattern(guess_word, ans_word):
     '''
     :param word: The guessed word
     :param ans_word: The correct answer
-    :return: Pattern to assist next guess
+    :param PATTERN_GRID: The complete pattern matrix and word_to_index mapping stored in a dictionary
+    :return: Pattern representing wordle similarity
         0 - Letter does not exist
         2 - Letter exits in the same location
         1 - Letter exists somewhere else
     Given a GUESS WORD and ANSWER find the pattern it would generate
     '''
 
-    pattern = []
-    letter_set = {}
-
-    for letter in ans_word:
-        if letter in letter_set:
-            letter_set[letter] += 1
-        else:
-            letter_set[letter] = 1
-
-    for idx, g_letter in enumerate(guess):
-        if g_letter == ans_word[idx]:
-            # Letter in the same location
-            pattern.append('2')
-            letter_set[g_letter] -= 1
-        elif g_letter in ans_word:
-            if letter_set[g_letter] > 0:
-                # Letter exists in different location
-                pattern.append('1')
-                letter_set[g_letter] -= 1
-            else:
-                # Letter does not exist
-                pattern.append('0')
-        else:
-            pattern.append('0')
-
-
-    pattern = ''.join(pattern)
+    if PATTERN_GRID:
+        word_to_index = PATTERN_GRID['word_to_index']
+        if ans_word in word_to_index and guess_word in word_to_index:
+            pattern = get_pattern_matrix([guess_word], [ans_word])[0,0]
+    pattern = generate_pattern_matrix([guess_word], [ans_word])[0,0]
     return pattern
 
 
-def filter_word_list(ans_word, pattern, word_list):
+def filter_word_list(guess_word, pattern, word_list):
+    guess_patterns = get_pattern_matrix([guess_word], word_list)
+    filtered_word_list = np.array(word_list)[guess_patterns.flatten() == pattern]
+    return filtered_word_list
+
+
+def get_wordle_prior():
+    all_words = get_word_list()
+    ans_words = get_word_list(ans_list=True)
+    return dict(
+        (w, int(w in ans_words) for w in all_words)
+    )
+
+
+def get_weights(word_list, priors):
+    word_freqs = [priors[word] for word in word_list]
+    total_freq = np.sum(word_freqs)
+    if total_freq == 0:
+        return np.zeros(word_freqs.shape)
+    word_freqs /= total_freq
+    return word_freqs
+
+
+def get_pattern_dist(allowed_words, possible_words, weights):
     '''
-    :param ans_word
-    :param pattern: The specific pattern
-    :param word_list: Set of all words in the list
-    :return: Set of all word that have the same pattern
-    Filter the word list based on the pattern
-    Given a WORD and a PATTERN find all possible words that could generate that pattern
+    For each allowed guess word, there are 3**5 possible patterns that could occur. These patterns will depend
+    on the possible answer words and their corresponding probability of occuring
+
+    The function return the probability distribution of the 3**5 patterns for each of the allowed guess word by
+    evaluating the pattern and aggregating the probability of each possible answer word in weights accordingly.
+    :param allowed_words:
+    :param possible_words:
+    :param weights:
+    :return:
     '''
-
-    matchedWords = set()
-
-    for item in word_list:
-        if get_pattern(item, ans_word) == pattern:
-            matchedWords.add(item)
-
-    matchedWords.add(ans_word)
-    return matchedWords
-
-
-def get_pattern_dist(test_word, word_list):
-    '''
-    :param word: Guessed word
-    :param word_list: Dict of all words in the list
-    :return: Dict of probability values for each pattern
-    Given a word, what is the probability distribution of all possible patterns
-    '''
-
-    prob_dist = {}
-    total_words = len(word_list)
-
-    for i in range(3):
-        for j in range(3):
-            for k in range(3):
-                for l in range(3):
-                    for m in range(3):
-                        matched_words = 0
-                        pattern = str(i) + str(j) + str(k) + str(l) + str(m)
-                        for word in word_list:
-                            if get_pattern(test_word, word) == pattern:
-                                matched_words += 1
-
-                        prob_dist[pattern] = matched_words/total_words
-
-    # score_sum = sum(prob_dist.values())
-    # for pattern, score in prob_dist.items():
-    #     prob_dist[pattern] = score/score_sum
-    return prob_dist
+    tot_words = len(allowed_words)
+    tot_possible_words = len(possible_words)
+    pattern_matrix = get_pattern_matrix(allowed_words, possible_words)
+    pattern_dist = np.zeros((tot_words, 3**5))
+    for i, prob in weights:
+        pattern_dist[np.arange(tot_words), pattern_matrix[:, i]] += prob
+    return pattern_dist
 
 
 def compute_entropy(prob_distr):
     entropy = 0
     for pattern, prob in prob_distr.items():
-        entropy += -prob * np.log(prob) if prob > 0 else 0
+        entropy += -prob * np.log2(prob) if prob > 0 else 0
     return entropy
 
 
@@ -138,7 +112,8 @@ def generate_pattern_matrix(words1, words2):
 
     :param words1: word list 1
     :param words2: word list 2
-    :return: A numpy array of the patten matrix
+    :return: A numpy array of the patten matrix. For each Guess, what would be the pattern for
+    each answer (dimension order)
     '''
 
     nw1 = len(words1)
@@ -158,7 +133,7 @@ def generate_pattern_matrix(words1, words2):
     # Set EXACT matches
     for i in range(nl):
         letter_matches = equality_matrix[:, :, i, i].flatten()
-        pattern_matrix.flat[letter_matches] = EXACT
+        pattern_matrix[:, :, i].flat[letter_matches] = EXACT
 
         for j in range(nl):
             # If a matched letter, is matching to a different letter as well, set
@@ -169,18 +144,30 @@ def generate_pattern_matrix(words1, words2):
     # Set SHIFTED matches
     for i, j in it.product(range(nl), range(nl)):
         letter_matches = equality_matrix[:, :, i, j].flatten()
-        pattern_matrix.flat[letter_matches] = SHIFTED
+        pattern_matrix[:, :, i].flat[letter_matches] = SHIFTED
 
         for k in range(nl):
             # Similar to above, mark as taken care of
             equality_matrix[:, :, k, j].flat[letter_matches] = False
             equality_matrix[:, :, i, k].flat[letter_matches] = False
 
-    return pattern_matrix
+    # Storing the pattern as a ternary value simplifies in indexing using
+    # the pattern for filtering the word list
+    full_pattern_matrix = np.dot(pattern_matrix, 3**np.arange(nl)).astype(np.uint8)
+    return full_pattern_matrix
+
+
+def ternary_to_int_pattern(pattern):
+    result = []
+    value = pattern
+    for i in range(5):
+        result.append(value % 3)
+        value = value // 3
+    return result
 
 
 def generate_full_pattern_matrix():
-    all_words = get_word_list(ALL_WORDS)
+    all_words = get_word_list()
     full_pattern_matrix = generate_pattern_matrix(all_words, all_words)
     np.save(PATTERN_MATRIX_FILE, full_pattern_matrix)
     return full_pattern_matrix
@@ -194,7 +181,7 @@ def get_pattern_matrix(words1, words2):
             ''')
             generate_full_pattern_matrix()
         PATTERN_GRID['grid'] = np.load(PATTERN_MATRIX_FILE)
-        PATTERN_GRID['words_to_index'] = dict(zip(words1, it.count()))
+        PATTERN_GRID['words_to_index'] = dict(zip(get_word_list(), it.count()))
 
     full_pattern_matrix = PATTERN_GRID['grid']
     words_to_index = PATTERN_GRID['words_to_index']
@@ -213,8 +200,8 @@ def get_pattern_matrix(words1, words2):
 if __name__ == "__main__":
     CORRECT = '22222'
 
-    word_list = get_word_list(ANS_WORDS)
-    answer_words = get_word_list(ANS_WORDS)
+    word_list = get_word_list()
+    answer_words = get_word_list(ans_list=True)
     answer_word = random.choice(answer_words)
     print(f"There are {len(word_list)} possible words")
     attempt = 1
