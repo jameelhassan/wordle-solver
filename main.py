@@ -95,9 +95,11 @@ def compute_entropy(pattern_dist):
     return entropy(pattern_dist, base=2, axis=ax)
 
 
-def maximize_entropy(pattern_dist):
-    entropies = compute_entropy(pattern_dist)
-    best_idx = np.argmax(entropies)
+def maximize_entropy(entropies, n_top=None):
+    if n_top is None:
+        best_idx = np.argmax(entropies)
+    else:
+        best_idx = np.random.choice(np.argsort(entropies)[::-1][:n_top])
     return best_idx
 
 
@@ -211,14 +213,20 @@ def gameplay(priors=None):
         if priors is None:
             priors = get_wordle_prior()
         weights = get_weights(possible_words, priors)
-        pattern_distribution = get_pattern_distribution(allowed_words, allowed_words, weights=None)
-        best_guess_idx = maximize_entropy(pattern_distribution)
+        pattern_distribution = get_pattern_distribution(allowed_words, allowed_words)
+        entropies = compute_entropy(pattern_distribution)
+        best_guess_idx = maximize_entropy(entropies, n_top=5)
         guess = allowed_words[best_guess_idx]
         iters += 1
         pattern = get_pattern(guess, answer_word)
+        guess_pattern_prob = pattern_distribution[best_guess_idx, pattern]
+        actual_info = np.log2(1 / guess_pattern_prob)
+        print(f"The Expected information for the guess word is {entropies[best_guess_idx]:.2f}")
+        print(f"The Actual information from the guess word is {actual_info:.2f}")
+        print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}\n")
+
         allowed_words = filter_word_list(guess, pattern, allowed_words)
         possible_words = filter_word_list(guess, pattern, possible_words)
-        print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}")
 
     return f"The correct word is {answer_word.upper()}, and was guessed in {iters} attempts"
 
