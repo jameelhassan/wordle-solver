@@ -97,9 +97,9 @@ def compute_entropy(pattern_dist):
 
 def maximize_entropy(entropies, n_top=None):
     if n_top is None:
-        best_idx = np.argmax(entropies)
+        best_idx = [np.argmax(entropies)]
     else:
-        best_idx = np.random.choice(np.argsort(entropies)[::-1][:n_top])
+        best_idx = np.argsort(entropies)[::-1][:n_top]
     return best_idx
 
 
@@ -215,14 +215,29 @@ def gameplay(priors=None):
         weights = get_weights(possible_words, priors)
         pattern_distribution = get_pattern_distribution(allowed_words, allowed_words)
         entropies = compute_entropy(pattern_distribution)
-        best_guess_idx = maximize_entropy(entropies, n_top=5)
-        guess = allowed_words[best_guess_idx]
+        best_guesses = maximize_entropy(entropies, n_top=6)
+        word_picks = [allowed_words[idx] for idx in best_guesses]
+
+        top_picks = dict(zip(word_picks, zip(best_guesses, entropies[best_guesses])))
+        # Show the top word picks and E[I]
+        for word, (idx, ent) in top_picks.items():
+            print(f"{word.upper()} \t E[I]: {ent:.2f}")
+
+        # Take user input as guess word
+        word_choice = input("Enter your choice of word\n").lower()
+        while word_choice not in top_picks.keys():
+            word_choice = input("Invalid choice.\nPlease choose from filtered list\n").lower()
+            for word, (idx, ent) in top_picks.items():
+                print(f"{word.upper()} \t E[I]: {ent:.2f}")
+
+        best_idx = top_picks[word_choice][0]
+        guess = word_choice
         iters += 1
         pattern = get_pattern(guess, answer_word)
-        guess_pattern_prob = pattern_distribution[best_guess_idx, pattern]
+        guess_pattern_prob = pattern_distribution[best_idx, pattern]
         actual_info = np.log2(1 / guess_pattern_prob)
-        print(f"The Expected information for the guess word is {entropies[best_guess_idx]:.2f}")
-        print(f"The Actual information from the guess word is {actual_info:.2f}")
+        #         print(f"The Expected information for the guess word is {entropies[best_idx]:.2f}")
+        #         print(f"The Actual information from the guess word is {actual_info:.2f}")
         print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}\n")
 
         allowed_words = filter_word_list(guess, pattern, allowed_words)
