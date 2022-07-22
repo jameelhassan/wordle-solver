@@ -242,8 +242,7 @@ def gameplay(autoplay=True, priors=None):
         pattern = get_pattern(guess, answer_word)
         guess_pattern_prob = pattern_distribution[best_idx, pattern]
         actual_info = np.log2(1 / guess_pattern_prob)
-        print(f"The Expected information for the guess word is {entropies[best_idx]:.2f}") if autoplay else None
-        print(f"The Actual information from the guess word is {actual_info:.2f}") if autoplay else None
+        print(f"E[I]: {entropies[best_idx]:.2f}, Actual Info: {actual_info:.2f}") if autoplay else None
         print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}\n")
 
         allowed_words = filter_word_list(guess, pattern, allowed_words)
