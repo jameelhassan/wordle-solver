@@ -2,6 +2,8 @@ import numpy as np
 import random
 import itertools as it
 from scipy.stats import entropy
+import os
+import json
 
 
 EXACT = 2
@@ -10,6 +12,7 @@ NO_MATCH = 0
 
 ALL_WORDS = 'data/allowed_words.txt'
 ANS_WORDS = 'data/possible_words.txt'
+WORD_FREQ = 'data/word_freq.json'
 PATTERN_MATRIX_FILE = 'data/pattern_matrix.npy'
 PATTERN_GRID = dict()
 
@@ -22,7 +25,6 @@ def get_word_list(ans_list=False):
     filename = ANS_WORDS if ans_list else ALL_WORDS
     with open(filename, 'r') as f:
         word_list = f.read().split('\n')
-
     return word_list
 
 
@@ -67,6 +69,46 @@ def get_weights(word_list, priors):
         return np.zeros(word_freqs.shape)
     word_freqs /= total_freq
     return word_freqs
+
+
+def get_word_freq():
+    if os.path.exists(WORD_FREQ):
+        with open(WORD_FREQ, 'r') as js:
+            word_freqs = json.load(js)
+        return word_freqs
+    raise Exception(f"Word frequency file {WORD_FREQ} not found")
+
+
+def get_freq_priors(num_of_common_words=3000, sigmoid_width=10):
+    '''
+    Using the frequency(as a probability) of each 5-letter word, a new weight is given
+    for each word. Since two words with significantly different frequencies can have
+    equally likely chance of being a wordle answer, a binary-like output weight using
+    a sigmoid is generated.
+
+    This can be conceptualized as taking the word list sorted by frequencies and considering
+    the indexes as a random variable. This is then transformed to a new random variable
+    such that the first of the common words (n_common_words from reverse) falls to zero.
+    Transformation Y = kX + delta.
+    '''
+
+    word_frequencies = get_word_freq()
+    words = np.array([w for w in word_frequencies.keys()])
+    frequencies = np.array([word_frequencies[w] for w in words])
+    argsort_ids = np.argsort(frequencies)
+    sorted_words = words[argsort_ids]
+
+    center = sigmoid_width * (num_of_common_words / len(words))
+    ys = np.linspace(center - sigmoid_width / 2, center + sigmoid_width / 2, len(words))
+
+    word_priors = dict()
+    for word, y in zip(sorted_words, ys):
+        word_priors[word] = sigmoid(y)
+    return word_priors
+
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
 
 
 def get_pattern_distribution(allowed_words, possible_words, weights=None):
