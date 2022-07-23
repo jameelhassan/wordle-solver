@@ -63,7 +63,10 @@ def get_wordle_prior():
 
 
 def get_weights(word_list, priors):
-    word_freqs = np.array([priors[word] for word in word_list], dtype=np.float)
+    '''
+    Word probabilities calculated using a softmax on the word scores/priors
+    '''
+    word_freqs = np.exp(np.array([priors[word] for word in word_list], dtype=np.float))
     total_freq = np.sum(word_freqs)
     if total_freq == 0:
         return np.zeros(word_freqs.shape)
@@ -244,20 +247,21 @@ def pattern_to_wordle_like(pattern):
     return "".join(d[x] for x in ternary_to_int_pattern(pattern))
 
 
-def gameplay(autoplay=True, priors=None):
+def gameplay(autoplay=True, get_priors=False, n_guess_rand=None):
     allowed_words = get_word_list()
     possible_words = get_word_list(ans_list=True)
     answer_word = np.random.choice(possible_words)
+    priors = get_freq_priors() if get_priors else None
     guess = 'xxxxx'
     iters = 0
 
     while guess != answer_word:
         if priors is None:
             priors = get_wordle_prior()
-        weights = get_weights(possible_words, priors)
-        pattern_distribution = get_pattern_distribution(allowed_words, allowed_words)
+        weights = get_weights(allowed_words, priors)
+        pattern_distribution = get_pattern_distribution(allowed_words, allowed_words, weights=weights)
         entropies = compute_entropy(pattern_distribution)
-        best_guesses = maximize_entropy(entropies, n_top=6)
+        best_guesses = maximize_entropy(entropies, n_top=n_guess_rand)
 
         # Take user input
         if not autoplay:
@@ -284,7 +288,7 @@ def gameplay(autoplay=True, priors=None):
         pattern = get_pattern(guess, answer_word)
         guess_pattern_prob = pattern_distribution[best_idx, pattern]
         actual_info = np.log2(1 / guess_pattern_prob)
-        print(f"E[I]: {entropies[best_idx]:.2f}, Actual Info: {actual_info:.2f}") if autoplay else None
+        print(f"E[I]: {entropies[best_idx]:.2f},\t Actual Info: {actual_info:.2f}") if autoplay else None
         print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}\n")
 
         allowed_words = filter_word_list(guess, pattern, allowed_words)
