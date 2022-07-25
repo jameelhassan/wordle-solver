@@ -247,39 +247,53 @@ def pattern_to_wordle_like(pattern):
     return "".join(d[x] for x in ternary_to_int_pattern(pattern))
 
 
-def gameplay(autoplay=True, get_priors=False, n_guess_rand=None):
+def interactive_user(allowed_words, best_guesses, entropies, weights):
+    word_picks = [allowed_words[idx] for idx in best_guesses]
+    top_picks = dict(zip(word_picks, zip(best_guesses, entropies[best_guesses])))
+
+    # Show the top word picks and E[I]
+    for word, (idx, ent) in top_picks.items():
+        print(f"{word.upper()} \t E[I]: {ent:.2f} \t P: {weights[idx]:.6f}")
+
+    word_choice = input("Enter your choice of word\n").lower()
+    while word_choice not in top_picks.keys():
+        word_choice = input("Invalid choice.\nPlease choose from filtered list\n").lower()
+        for word, (idx, ent) in top_picks.items():
+            print(f"{word.upper()} \t E[I]: {ent:.2f} \t P: {weights[idx]:.6f}")
+
+    best_idx = top_picks[word_choice][0]
+    guess = word_choice
+    return best_idx, guess
+
+
+def gameplay(first_guess=None, autoplay=True, get_priors=None, n_guess_rand=None,
+             optimize_probability=True):
     allowed_words = get_word_list()
     possible_words = get_word_list(ans_list=True)
     answer_word = np.random.choice(possible_words)
-    priors = get_freq_priors() if get_priors else None
-    guess = 'xxxxx'
-    iters = 0
+    iters = 1
+
+    if get_priors:
+        priors = get_freq_priors()
+    else:
+        priors = get_wordle_prior()
+
+    weights = get_weights(allowed_words, priors)
+    if first_guess is None:
+        guess = np.random.choice(allowed_words, p=weights)
+        pattern = get_pattern(guess, answer_word)
+        print(f"{guess.upper()} {pattern_to_wordle_like(pattern)}\n")
 
     while guess != answer_word:
-        if priors is None:
-            priors = get_wordle_prior()
         weights = get_weights(allowed_words, priors)
         pattern_distribution = get_pattern_distribution(allowed_words, allowed_words, weights=weights)
         entropies = compute_entropy(pattern_distribution)
-        best_guesses = maximize_entropy(entropies, n_top=n_guess_rand)
+        prob_entr = entropies + weights if optimize_probability else entropies
+        best_guesses = maximize_entropy(prob_entr, n_top=n_guess_rand)
 
         # Take user input
         if not autoplay:
-            word_picks = [allowed_words[idx] for idx in best_guesses]
-            top_picks = dict(zip(word_picks, zip(best_guesses, entropies[best_guesses])))
-
-            # Show the top word picks and E[I]
-            for word, (idx, ent) in top_picks.items():
-                print(f"{word.upper()} \t E[I]: {ent:.2f}")
-
-            word_choice = input("Enter your choice of word\n").lower()
-            while word_choice not in top_picks.keys():
-                word_choice = input("Invalid choice.\nPlease choose from filtered list\n").lower()
-                for word, (idx, ent) in top_picks.items():
-                    print(f"{word.upper()} \t E[I]: {ent:.2f}")
-
-            best_idx = top_picks[word_choice][0]
-            guess = word_choice
+            best_idx, guess = interactive_user(allowed_words, best_guesses, entropies, weights)
         else:
             best_idx = np.random.choice(best_guesses)
             guess = allowed_words[best_idx]
@@ -288,9 +302,11 @@ def gameplay(autoplay=True, get_priors=False, n_guess_rand=None):
         pattern = get_pattern(guess, answer_word)
         guess_pattern_prob = pattern_distribution[best_idx, pattern]
         actual_info = np.log2(1 / guess_pattern_prob)
-        print(f"E[I]: {entropies[best_idx]:.2f},\t Actual Info: {actual_info:.2f}") if autoplay else None
-        print(f"The guessed word is {guess.upper()} and the pattern is {pattern_to_wordle_like(pattern)}\n")
 
+        if autoplay:
+            print(f"E[I]: {entropies[best_idx]:.2f},\t Actual Info: {actual_info:.2f}")
+
+        print(f"{guess.upper()} {pattern_to_wordle_like(pattern)}\n")
         allowed_words = filter_word_list(guess, pattern, allowed_words)
         possible_words = filter_word_list(guess, pattern, possible_words)
 
