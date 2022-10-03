@@ -1,7 +1,7 @@
 # wordle-solver
 A wordle solver using an Information Theoretic approach
 
-Inspired from the work of [3Blue1Brown](https://www.youtube.com/watch?v=v68zYyaEmEA&t=1049s). 
+A complete implementation from scratch inspired from the work of [3Blue1Brown](https://www.youtube.com/watch?v=v68zYyaEmEA&t=1049s). 
 
 ## Approach
 
